@@ -1,0 +1,31 @@
+name: Sync Tags
+
+on:
+  schedule:
+    - cron: "45 3 * * *"
+  push:
+    branches: [main, master]
+
+jobs:
+  synctags:
+    name: Sync Tags
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PA_TOKEN }}
+          fetch-depth: 0
+
+      - name: Sync Tags
+        run: |
+          MASTER_BRANCH=`git remote show origin | grep HEAD | awk '{print $3;}'`
+          git remote add fork https://x-access-token:${PA_TOKEN}@github.com/hashicorp/packer.git
+          for TAG in $(comm -23 <(git ls-remote --tags fork | grep -v '\^{}' | grep -v '-' | awk '{print $2}') <(git ls-remote --tags origin | grep -v '\^{}' | awk '{print $2}')); do
+            git fetch fork $TAG:$TAG --no-tags
+            TAG=$(echo $TAG | sed 's/refs\/tags\///')
+            MERGE_COMMIT=$(git log $MASTER_BRANCH $TAG..$MASTER_BRANCH --ancestry-path --merges --oneline | tail -n1 | awk '{print $1;}')
+            echo $TAG:$COMMIT
+            git tag -d $TAG
+            git tag $TAG $MERGE_COMMIT
+            git push origin --tags
+          done
