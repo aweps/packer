@@ -1,6 +1,22 @@
-## 1.9.0 (Unreleased)
+## 1.9.2 (Upcoming)
+
+## 1.9.1 (June 1, 2023)
+
+### BUG FIXES:
+
+* On May 16th 2023, HCP introduced multi-project support to the platform.
+    In order to use multiple projects in your organization, you will need to update Packer
+    to version 1.9.1 or above. Starting with 1.9.1, you may specify a project ID to push
+    builds to with the `HCP_PROJECT_ID` environment variable. If no project ID is specified,
+    Packer will pick the project with the oldest creation date. Older versions of Packer are
+    incompatible with multi-project support on HCP, and builds will fail for HCP
+    organizations with multiple projects on versions before 1.9.1.
+    [GH-12453](https://github.com/hashicorp/packer/pull/12453)
+
+## 1.9.0 (May 31, 2023)
 
 ### NOTES:
+
 * **Breaking Change**: Iteration fingerprints used to be computed from the Git SHA of the
      repository where the template is located when running packer build. This
      changes with this release, and now fingerprints are automatically generated
@@ -12,19 +28,68 @@
      these builds will work exactly as they did before.
      [GH-12172](https://github.com/hashicorp/packer/pull/12172)
 
+* **Breaking Change**: Community-maintained plugins bundled with the Packer binary have been removed.
+     These external plugin components are released independently of Packer core and can be installed
+     directly by the user. Users relying on the external plugin components listed below should refer
+     to the `packer plugins` sub-command and, if using HCL2, a `required_plugins` block to define a
+     list of plugins for building a template.
+
 ### PLUGINS
+
 * Remove provisioner plugins for Chef, Converge, Puppet, Salt, and Inspec as
      vendored plugins. These plugins have been previously archived and not
      updated in release since being archived. These plugins can be installed
      using `packer init` or with the Packer plugins sub-command `packer plugins install github.com/hashicorp/chef`.
      [GH-12374](https://github.com/hashicorp/packer/pull/12374)
 
+* The following community plugins won't be bundled with Packer anymore:
+
+    * [Alicloud](https://github.com/hashicorp/packer-plugin-alicloud)
+    * [CloudStack](https://github.com/hashicorp/packer-plugin-cloudstack)
+    * [HCloud](https://github.com/hashicorp/packer-plugin-hcloud)
+    * [HyperOne](https://github.com/hashicorp/packer-plugin-hyperone)
+    * [Hyper-V](https://github.com/hashicorp/packer-plugin-hyperv)
+    * [JDCloud](https://github.com/hashicorp/packer-plugin-jdcloud)
+    * [LXC](https://github.com/hashicorp/packer-plugin-lxc)
+    * [LXD](https://github.com/hashicorp/packer-plugin-lxd)
+    * [NCloud](https://github.com/hashicorp/packer-plugin-ncloud)
+    * [OpenStack](https://github.com/hashicorp/packer-plugin-openstack)
+    * [Proxmox](https://github.com/hashicorp/packer-plugin-proxmox)
+    * [TencentCloud](https://github.com/hashicorp/packer-plugin-tencentcloud)
+    * [Triton](https://github.com/hashicorp/packer-plugin-triton)
+    * [Yandex](https://github.com/hashicorp/packer-plugin-yandex)
+
+    [GH-12436](https://github.com/hashicorp/packer/pull/12436)
+
+Users relying on these external plugin components should refer to the `packer plugins` sub-command and,
+if using HCL2, a `required_plugins` block to define a list of plugins to use for building a template.
+
 ### IMPROVEMENTS:
 
 * core/hcp: Now, fingerprints used by HCP Packer are randomly generated ULIDs
      instead of a Git SHA, and a new one is always generated, unless one is
-     already specified in the environment.
+     specified in the environment.
      [GH-12172](https://github.com/hashicorp/packer/pull/12172)
+
+### BUG FIXES:
+
+* Fix LDFLAGS for release pipelines: Between Packer 1.8.5 and Packer 1.8.7, changes
+    to the LDFLAGS in use for building the binaries for Packer had mistakenly
+    removed some compilation flags, leading to the final binaries not being stripped.
+    This change raised the size of the built binaries by as much as 45%.
+    In this release, we fixed the LDFLAGS during compilation, yielding leaner binaries.
+
+* Bumped gopsutil to v3. This fixes a macOS intermittent crash reported by the community
+    [GH-12430](https://github.com/hashicorp/packer/issues/12430)
+
+### HCP Packer -- Multi project support advisory
+
+If using HCP Packer to store metadata on your builds, please be aware that Packer
+does not support this feature yet, and as such, having multiple projects in your
+organization will make it impossible to use HCP Packer in this release.
+
+We are actively working on supporting this feature, which will be available in a
+subsequent release.
 
 ## 1.8.7 (May 4, 2023)
 
