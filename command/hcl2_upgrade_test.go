@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package command
 
@@ -38,6 +38,7 @@ func Test_hcl2_upgrade(t *testing.T) {
 		{folder: "complete-variables-with-template-engine", flags: []string{}},
 		{folder: "undeclared-variables", flags: []string{}, exitCode: 0},
 		{folder: "varfile-with-no-variables-block", flags: []string{}, exitCode: 0},
+		{folder: "bundled-plugin-used", flags: []string{}, exitCode: 0},
 	}
 
 	for _, tc := range tc {

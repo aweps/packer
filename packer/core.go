@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package packer
 
@@ -130,6 +130,12 @@ func NewCore(c *CoreConfig) *Core {
 		except:     c.Except,
 	}
 	return core
+}
+
+// DetectPluginBinaries is used to load required plugins from the template,
+// since it is unsupported in JSON, this is essentially a no-op.
+func (c *Core) DetectPluginBinaries() hcl.Diagnostics {
+	return nil
 }
 
 func (c *Core) Initialize(_ InitializeOptions) hcl.Diagnostics {
