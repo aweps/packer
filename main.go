@@ -9,7 +9,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -65,13 +64,13 @@ func realMain() int {
 		return 1
 	}
 	if logWriter == nil {
-		logWriter = ioutil.Discard
+		logWriter = io.Discard
 	}
 
 	packersdk.LogSecretFilter.SetOutput(logWriter)
 
 	// Disable logging here
-	log.SetOutput(ioutil.Discard)
+	log.SetOutput(io.Discard)
 
 	// We always send logs to a temporary file that we use in case
 	// there is a panic. Otherwise, we delete it.
@@ -252,11 +251,21 @@ func wrappedMain() int {
 		Ui: ui,
 	}
 
+	//versionCLIHelper shortcuts "--version" and "-v" to just show the version
+	versionCLIHelper := &cli.CLI{
+		Args:    args,
+		Version: version.Version,
+	}
+	if versionCLIHelper.IsVersion() && versionCLIHelper.Version != "" {
+		// by default version flags ignore all other args so there is no need to persist the original args.
+		args = []string{"version"}
+	}
+
 	cli := &cli.CLI{
 		Args:         args,
 		Autocomplete: true,
 		Commands:     Commands,
-		HelpFunc:     excludeHelpFunc(Commands, []string{"plugin"}),
+		HelpFunc:     excludeHelpFunc(Commands, []string{"execute", "plugin"}),
 		HelpWriter:   os.Stdout,
 		Name:         "packer",
 		Version:      version.Version,
@@ -320,14 +329,20 @@ func extractMachineReadable(args []string) ([]string, bool) {
 }
 
 func loadConfig() (*config, error) {
+	pluginDir, err := packer.PluginFolder()
+	if err != nil {
+		return nil, err
+	}
+
 	var config config
 	config.Plugins = &packer.PluginConfig{
-		PluginMinPort:      10000,
-		PluginMaxPort:      25000,
-		KnownPluginFolders: packer.PluginFolders("."),
-	}
-	if err := config.Plugins.Discover(); err != nil {
-		return nil, err
+		PluginMinPort:   10000,
+		PluginMaxPort:   25000,
+		PluginDirectory: pluginDir,
+		Builders:        packer.MapOfBuilder{},
+		Provisioners:    packer.MapOfProvisioner{},
+		PostProcessors:  packer.MapOfPostProcessor{},
+		DataSources:     packer.MapOfDatasource{},
 	}
 
 	// Finally, try to use an internal plugin. Note that this will not override
@@ -366,7 +381,9 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	config.LoadExternalComponentsFromConfig()
+	if err := config.LoadExternalComponentsFromConfig(); err != nil {
+		return nil, fmt.Errorf("%s: %s", configFilePath, err)
+	}
 
 	return &config, nil
 }
@@ -399,15 +416,15 @@ func copyOutput(r io.Reader, doneCh chan<- struct{}) {
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		io.Copy(os.Stderr, stderrR)
+		_, _ = io.Copy(os.Stderr, stderrR)
 	}()
 	go func() {
 		defer wg.Done()
-		io.Copy(os.Stdout, stdoutR)
+		_, _ = io.Copy(os.Stdout, stdoutR)
 	}()
 	go func() {
 		defer wg.Done()
-		io.Copy(os.Stdout, defaultR)
+		_, _ = io.Copy(os.Stdout, defaultR)
 	}()
 
 	wg.Wait()

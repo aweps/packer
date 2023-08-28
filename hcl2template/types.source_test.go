@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
 	"github.com/hashicorp/packer/builder/null"
 	"github.com/hashicorp/packer/packer"
 )
@@ -52,16 +51,19 @@ func TestParse_source(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 		{"untyped source",
 			defaultParser,
@@ -73,6 +75,7 @@ func TestParse_source(t *testing.T) {
 			true, true,
 			nil,
 			false,
+			nil,
 		},
 		{"unnamed source",
 			defaultParser,
@@ -84,6 +87,7 @@ func TestParse_source(t *testing.T) {
 			true, true,
 			nil,
 			false,
+			nil,
 		},
 		{"unused source with unknown type fails",
 			defaultParser,
@@ -97,8 +101,9 @@ func TestParse_source(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 		{"used source with unknown type fails",
 			defaultParser,
@@ -122,6 +127,7 @@ func TestParse_source(t *testing.T) {
 			true, true,
 			nil,
 			false,
+			nil,
 		},
 		{"duplicate source",
 			defaultParser,
@@ -142,6 +148,7 @@ func TestParse_source(t *testing.T) {
 			true, true,
 			nil,
 			false,
+			nil,
 		},
 	}
 	testParse(t, tests)

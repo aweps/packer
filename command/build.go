@@ -25,6 +25,10 @@ import (
 	"github.com/posener/complete"
 )
 
+const (
+	hcpReadyIntegrationURL = "https://developer.hashicorp.com/packer/integrations?flags=hcp-ready"
+)
+
 type BuildCommand struct {
 	Meta
 }
@@ -43,7 +47,7 @@ func (c *BuildCommand) Run(args []string) int {
 
 func (c *BuildCommand) ParseArgs(args []string) (*BuildArgs, int) {
 	var cfg BuildArgs
-	flags := c.Meta.FlagSet("build", FlagSetBuildFilter|FlagSetVars)
+	flags := c.Meta.FlagSet("build")
 	flags.Usage = func() { c.Ui.Say(c.Help()) }
 	cfg.AddFlagSets(flags)
 	if err := flags.Parse(args); err != nil {
@@ -82,6 +86,11 @@ func writeDiags(ui packersdk.Ui, files map[string]*hcl.File, diags hcl.Diagnosti
 }
 
 func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int {
+	// Set the release only flag if specified as argument
+	//
+	// This deactivates the capacity for Packer to load development binaries.
+	c.CoreConfig.Components.PluginConfig.ReleasesOnly = cla.ReleaseOnly
+
 	packerStarter, ret := c.GetConfig(&cla.MetaArgs)
 	if ret != 0 {
 		return ret
@@ -93,9 +102,14 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 		return ret
 	}
 
-	diags = packerStarter.Initialize(packer.InitializeOptions{})
-	bundledDiags := c.DetectBundledPlugins(packerStarter)
-	diags = append(bundledDiags, diags...)
+	diags = packerStarter.Initialize(packer.InitializeOptions{
+		UseSequential: cla.UseSequential,
+	})
+
+	if packer.PackerUseProto {
+		log.Printf("[TRACE] Using protobuf for communication with plugins")
+	}
+
 	ret = writeDiags(c.Ui, nil, diags)
 	if ret != 0 {
 		return ret
@@ -106,14 +120,15 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 	if ret != 0 {
 		return ret
 	}
+	hcpRegistry.Metadata().Gather(GetCleanedBuildArgs(cla))
 
-	defer hcpRegistry.IterationStatusSummary()
+	defer hcpRegistry.VersionStatusSummary()
 
-	err := hcpRegistry.PopulateIteration(buildCtx)
+	err := hcpRegistry.PopulateVersion(buildCtx)
 	if err != nil {
 		return writeDiags(c.Ui, nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
-				Summary:  "HCP: populating iteration failed",
+				Summary:  "HCP: populating version failed",
 				Severity: hcl.DiagError,
 				Detail:   err.Error(),
 			},
@@ -147,7 +162,7 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 		packer.UiColorYellow,
 		packer.UiColorBlue,
 	}
-	buildUis := make(map[packersdk.Build]packersdk.Ui)
+	buildUis := make(map[*packer.CoreBuild]packersdk.Ui)
 	for i := range builds {
 		ui := c.Ui
 		if cla.Color {
@@ -204,6 +219,7 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 		m map[string]error
 	}{m: make(map[string]error)}
 	limitParallel := semaphore.NewWeighted(cla.ParallelBuilds)
+
 	for i := range builds {
 		if err := buildCtx.Err(); err != nil {
 			log.Println("Interrupted, not going to start any more builds.")
@@ -266,15 +282,29 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 				runArtifacts,
 				err)
 			if hcperr != nil {
-				writeDiags(c.Ui, nil, hcl.Diagnostics{
-					&hcl.Diagnostic{
-						Summary: fmt.Sprintf(
-							"failed to complete HCP-enabled build %q",
-							name),
-						Severity: hcl.DiagError,
-						Detail:   hcperr.Error(),
-					},
-				})
+				if _, ok := hcperr.(*registry.NotAHCPArtifactError); ok {
+					writeDiags(c.Ui, nil, hcl.Diagnostics{
+						&hcl.Diagnostic{
+							Severity: hcl.DiagError,
+							Summary:  fmt.Sprintf("The %q builder produced an artifact that cannot be pushed to HCP Packer", b.Name()),
+							Detail: fmt.Sprintf(
+								`%s
+Check that you are using an HCP Ready integration before trying again:
+%s`,
+								hcperr, hcpReadyIntegrationURL),
+						},
+					})
+				} else {
+					writeDiags(c.Ui, nil, hcl.Diagnostics{
+						&hcl.Diagnostic{
+							Summary: fmt.Sprintf(
+								"publishing build metadata to HCP Packer for %q failed",
+								name),
+							Severity: hcl.DiagError,
+							Detail:   hcperr.Error(),
+						},
+					})
+				}
 			}
 
 			if err != nil {
@@ -289,6 +319,15 @@ func (c *BuildCommand) RunContext(buildCtx context.Context, cla *BuildArgs) int 
 					artifacts.m[name] = runArtifacts
 					artifacts.Unlock()
 				}
+			}
+
+			// If the build succeeded but uploading to HCP failed,
+			// Packer should exit non-zero, so we re-assign the
+			// error to account for this case.
+			if hcperr != nil && err == nil {
+				errs.Lock()
+				errs.m[name] = hcperr
+				errs.Unlock()
 			}
 		}()
 
@@ -415,6 +454,8 @@ Options:
   -var 'key=value'              Variable for templates, can be used multiple times.
   -var-file=path                JSON or HCL2 file containing user variables, can be used multiple times.
   -warn-on-undeclared-var       Display warnings for user variable files containing undeclared variables.
+  -ignore-prerelease-plugins    Disable the loading of prerelease plugin binaries (x.y.z-dev).
+  -use-sequential-evaluation    Fallback to using a sequential approach for local/datasource evaluation.
 `
 
 	return strings.TrimSpace(helpText)

@@ -68,11 +68,11 @@ jobs:
           summary: "${{ github.event.repository.name }}: ${{ github.event.issue.title }}"
           description: "${{ github.event.issue.body }}\n\n_Created from GitHub by ${{ github.actor }}._"
           # The field customfield_10089 refers to the Issue Link field in JIRA. 
-          fields: '{ "customfield_10089": "${{ github.event.issue.html_url }}", "components": [{ "name": "OSS" }], "labels": ${{ steps.set-ticket-labels.outputs.labels }} }'
+          fields: '{ "customfield_10089": "${{ github.event.issue.html_url }}", "components": [{ "name": "core" }], "labels": ${{ steps.set-ticket-labels.outputs.labels }} }'
 
       - name: Add tracking comment
         if: steps.create-ticket.outputs.issue != '' && steps.set-ticket-type.outputs.type != 'Invalid'
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
             github.rest.issues.createComment({

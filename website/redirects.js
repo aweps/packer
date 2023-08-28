@@ -86,7 +86,28 @@ module.exports = [
     destination: '/packer/docs/templates/hcl_templates/functions',
     permanent: true,
   },
+  {
+    source: '/packer/docs/plugins/install-plugins',
+    destination: '/packer/docs/plugins/install',
+    permanent: true,
+  },
+  {
+    source: '/packer/docs/provisioners/custom',
+    destination: '/packer/docs/plugins/creation/custom-provisioners',
+    permanent: true,
+  },
   /**
    * END EMPTY PAGE REDIRECTS
    */
+  {
+    source: '/packer/docs/builders/custom',
+    destination: '/packer/docs/plugins/creation/custom-builders',
+    permanent: true,
+  },
+  {
+    source: '/packer/docs/install',
+    destination: '/packer/install',
+    permanent: true,
+  }
+
 ]

@@ -6,7 +6,6 @@ package command
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +127,7 @@ func TestFmt_Recursive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tempDirectory := mustString(ioutil.TempDir(testDir, "test-dir-*"))
+			tempDirectory := mustString(os.MkdirTemp(testDir, "test-dir-*"))
 			defer os.RemoveAll(tempDirectory)
 
 			createFiles(tempDirectory, tt.alreadyPresentContent)
@@ -167,7 +166,7 @@ func Test_fmt_pipe(t *testing.T) {
 			p := helperCommand(t, tc.command...)
 			p.Stdin = strings.NewReader(tc.piped)
 			p.Env = append(p.Env, tc.env...)
-			fmt.Println(fmt.Sprintf("Path: %s", p.Path))
+			t.Logf("Path: %s", p.Path)
 			bs, err := p.Output()
 			if err != nil {
 				t.Fatalf("Error occurred running command %v: %s", err, bs)
@@ -176,5 +175,20 @@ func Test_fmt_pipe(t *testing.T) {
 				t.Fatalf("Error in diff: %s", diff)
 			}
 		})
+	}
+}
+
+const malformedTemplate = "test-fixtures/fmt_errs/malformed.pkr.hcl"
+
+func TestFmtParseError(t *testing.T) {
+	p := helperCommand(t, "fmt", malformedTemplate)
+	outs, err := p.CombinedOutput()
+	if err == nil {
+		t.Errorf("Expected failure to format file, but command did not fail")
+	}
+	strLogs := string(outs)
+
+	if !strings.Contains(strLogs, "An argument or block definition is required here.") {
+		t.Errorf("Expected some diags about parse error, found none")
 	}
 }

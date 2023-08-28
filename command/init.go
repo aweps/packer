@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	gversion "github.com/hashicorp/go-version"
 	pluginsdk "github.com/hashicorp/packer-plugin-sdk/plugin"
 	"github.com/hashicorp/packer/packer"
 	plugingetter "github.com/hashicorp/packer/packer/plugin-getter"
@@ -37,7 +38,7 @@ func (c *InitCommand) Run(args []string) int {
 
 func (c *InitCommand) ParseArgs(args []string) (*InitArgs, int) {
 	var cfg InitArgs
-	flags := c.Meta.FlagSet("init", 0)
+	flags := c.Meta.FlagSet("init")
 	flags.Usage = func() { c.Ui.Say(c.Help()) }
 	cfg.AddFlagSets(flags)
 	if err := flags.Parse(args); err != nil {
@@ -66,8 +67,16 @@ func (c *InitCommand) RunContext(buildCtx context.Context, cla *InitArgs) int {
 		return ret
 	}
 
+	if len(reqs) == 0 {
+		c.Ui.Message(`
+No plugins requirement found, make sure you reference a Packer config
+containing a packer.required_plugins block. See
+https://www.packer.io/docs/templates/hcl_templates/blocks/packer
+for more info.`)
+	}
+
 	opts := plugingetter.ListInstallationsOptions{
-		FromFolders: c.Meta.CoreConfig.Components.PluginConfig.KnownPluginFolders,
+		PluginDirectory: c.Meta.CoreConfig.Components.PluginConfig.PluginDirectory,
 		BinaryInstallationOptions: plugingetter.BinaryInstallationOptions{
 			OS:              runtime.GOOS,
 			ARCH:            runtime.GOARCH,
@@ -76,6 +85,7 @@ func (c *InitCommand) RunContext(buildCtx context.Context, cla *InitArgs) int {
 			Checksummers: []plugingetter.Checksummer{
 				{Type: "sha256", Hash: sha256.New()},
 			},
+			ReleasesOnly: true,
 		},
 	}
 
@@ -112,16 +122,34 @@ func (c *InitCommand) RunContext(buildCtx context.Context, cla *InitArgs) int {
 			return 1
 		}
 
-		log.Printf("[TRACE] for plugin %s found %d matching installation(s)", pluginRequirement.Identifier, len(installs))
+		if len(installs) > 0 {
+			if !cla.Force && !cla.Upgrade {
+				continue
+			}
 
-		if len(installs) > 0 && cla.Upgrade == false {
-			continue
+			if cla.Force && !cla.Upgrade {
+				// Only place another constaint to the latest release
+				// binary, if any, otherwise this is essentially the same
+				// as an upgrade
+				var installVersion string
+				for _, install := range installs {
+					ver, _ := gversion.NewVersion(install.Version)
+					if ver.Prerelease() == "" {
+						installVersion = install.Version
+					}
+				}
+
+				if installVersion != "" {
+					pluginRequirement.VersionConstraints, _ = gversion.NewConstraint(fmt.Sprintf("=%s", installVersion))
+				}
+			}
 		}
 
 		newInstall, err := pluginRequirement.InstallLatest(plugingetter.InstallOptions{
-			InFolders:                 opts.FromFolders,
+			PluginDirectory:           opts.PluginDirectory,
 			BinaryInstallationOptions: opts.BinaryInstallationOptions,
 			Getters:                   getters,
+			Force:                     cla.Force,
 		})
 		if err != nil {
 			c.Ui.Error(fmt.Sprintf("Failed getting the %q plugin:", pluginRequirement.Identifier))
@@ -155,6 +183,8 @@ Options:
                                version, if there is a new higher one. Note that
                                this still takes into consideration the version
                                constraint of the config.
+  -force                       Forces reinstallation of plugins, even if already
+                               installed.
 `
 
 	return strings.TrimSpace(helpText)
