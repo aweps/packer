@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 // Package registry provides access to the HCP registry.
 package registry
@@ -15,13 +15,14 @@ import (
 
 // Registry is an entity capable to orchestrate a Packer build and upload metadata to HCP
 type Registry interface {
-	PopulateIteration(context.Context) error
-	StartBuild(context.Context, sdkpacker.Build) error
-	CompleteBuild(ctx context.Context, build sdkpacker.Build, artifacts []sdkpacker.Artifact, buildErr error) ([]sdkpacker.Artifact, error)
-	IterationStatusSummary()
+	PopulateVersion(context.Context) error
+	StartBuild(context.Context, *packer.CoreBuild) error
+	CompleteBuild(ctx context.Context, build *packer.CoreBuild, artifacts []sdkpacker.Artifact, buildErr error) ([]sdkpacker.Artifact, error)
+	VersionStatusSummary()
+	Metadata() Metadata
 }
 
-// New instanciates the appropriate registry for the Packer configuration template type.
+// New instantiates the appropriate registry for the Packer configuration template type.
 // A nullRegistry is returned for non-HCP Packer registry enabled templates.
 func New(cfg packer.Handler, ui sdkpacker.Ui) (Registry, hcl.Diagnostics) {
 	if !IsHCPEnabled(cfg) {
@@ -31,9 +32,9 @@ func New(cfg packer.Handler, ui sdkpacker.Ui) (Registry, hcl.Diagnostics) {
 	switch config := cfg.(type) {
 	case *hcl2template.PackerConfig:
 		// Maybe rename to what it represents....
-		return NewHCLMetadataRegistry(config, ui)
+		return NewHCLRegistry(config, ui)
 	case *packer.Core:
-		return NewJSONMetadataRegistry(config, ui)
+		return NewJSONRegistry(config, ui)
 	}
 
 	return nil, hcl.Diagnostics{

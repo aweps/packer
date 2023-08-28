@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package packer
 
@@ -9,6 +9,7 @@ import (
 	"log"
 	"sync"
 
+	hcpPackerModels "github.com/hashicorp/hcp-sdk-go/clients/cloud-packer-service/stable/2023-01-01/models"
 	"github.com/hashicorp/packer-plugin-sdk/common"
 	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
 	"github.com/hashicorp/packer-plugin-sdk/packerbuilderdata"
@@ -41,6 +42,7 @@ type CoreBuild struct {
 	CleanupProvisioner CoreBuildProvisioner
 	TemplatePath       string
 	Variables          map[string]string
+	SensitiveVars      []string
 
 	// Indicates whether the build is already initialized before calling Prepare(..)
 	Prepared bool
@@ -50,6 +52,56 @@ type CoreBuild struct {
 	onError       string
 	l             sync.Mutex
 	prepareCalled bool
+
+	SBOMs []SBOM
+}
+
+type SBOM struct {
+	Name           string
+	Format         hcpPackerModels.HashicorpCloudPacker20230101SbomFormat
+	CompressedData []byte
+}
+
+type BuildMetadata struct {
+	PackerVersion string
+	Plugins       map[string]PluginDetails
+	SBOMs         []SBOM
+}
+
+func (b *CoreBuild) getPluginsMetadata() map[string]PluginDetails {
+	resp := map[string]PluginDetails{}
+
+	builderPlugin, builderPluginOk := GlobalPluginsDetailsStore.GetBuilder(b.BuilderType)
+	if builderPluginOk {
+		resp[builderPlugin.Name] = builderPlugin
+	}
+
+	for _, pp := range b.PostProcessors {
+		for _, p := range pp {
+			postprocessorsPlugin, postprocessorsPluginOk := GlobalPluginsDetailsStore.GetPostProcessor(p.PType)
+			if postprocessorsPluginOk {
+				resp[postprocessorsPlugin.Name] = postprocessorsPlugin
+			}
+		}
+	}
+
+	for _, pv := range b.Provisioners {
+		provisionerPlugin, provisionerPluginOk := GlobalPluginsDetailsStore.GetProvisioner(pv.PType)
+		if provisionerPluginOk {
+			resp[provisionerPlugin.Name] = provisionerPlugin
+		}
+	}
+
+	return resp
+}
+
+func (b *CoreBuild) GetMetadata() BuildMetadata {
+	metadata := BuildMetadata{
+		PackerVersion: version.FormattedVersion(),
+		Plugins:       b.getPluginsMetadata(),
+		SBOMs:         b.SBOMs,
+	}
+	return metadata
 }
 
 // CoreBuildPostProcessor Keeps track of the post-processor and the
@@ -124,6 +176,7 @@ func (b *CoreBuild) Prepare() (warn []string, err error) {
 		common.OnErrorConfigKey:       b.onError,
 		common.TemplatePathKey:        b.TemplatePath,
 		common.UserVariablesConfigKey: b.Variables,
+		common.SensitiveVarsConfigKey: b.SensitiveVars,
 	}
 
 	// Prepare the builder
@@ -258,6 +311,18 @@ func (b *CoreBuild) Run(ctx context.Context, originalUi packersdk.Ui) ([]packers
 	ts.End(err)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, p := range b.Provisioners {
+		sbomInternalProvisioner, ok := p.Provisioner.(*SBOMInternalProvisioner)
+		if ok {
+			sbom := SBOM{
+				Name:           sbomInternalProvisioner.SBOMName,
+				Format:         sbomInternalProvisioner.SBOMFormat,
+				CompressedData: sbomInternalProvisioner.CompressedData,
+			}
+			b.SBOMs = append(b.SBOMs, sbom)
+		}
 	}
 
 	// If there was no result, don't worry about running post-processors

@@ -1,5 +1,5 @@
 # Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 
 schema = "1"
 
@@ -12,8 +12,9 @@ project "packer" {
     organization = "hashicorp"
     repository = "packer"
     release_branches = [
-        "main", 
-        "release/**"
+        "main",
+        "release/**",
+        "feature/**"
     ]
   }
 }
@@ -139,21 +140,8 @@ event "post-publish-website" {
   }
 }
 
-event "bump-version" {
-  depends = ["post-publish-website"]
-  action "bump-version" {
-    organization = "hashicorp"
-    repository = "crt-workflows-common"
-    workflow = "bump-version"
-  }
-
-  notification {
-    on = "fail"
-  }
-}
-
 event "update-ironbank" {
-  depends = ["bump-version"]
+  depends = ["post-publish-website"]
   action "update-ironbank" {
     organization = "hashicorp"
     repository = "crt-workflows-common"

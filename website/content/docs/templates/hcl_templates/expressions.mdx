@@ -1,13 +1,14 @@
 ---
-page_title: Expressions - Configuration Language
+page_title: HCL expressions reference
 description: |-
-  HCL allows the use of expressions to access data exported
-  by sources and to transform and combine that data to produce other values.
+  HCL expresssions provide access to data exported by data sources and transforms and combines the data into other values. Learn how to use HCL expressions in Packer templates.
 ---
 
-# Expressions
+# HCL expressions reference
 
-`@include 'from-1.5/beta-hcl2-note.mdx'`
+This topic provides reference information about expressions you can use in HCL templates for Packer.
+
+## Introduction
 
 _Expressions_ are used to refer to or compute values within a configuration.
 The simplest expressions are just literal values, like `"hello"` or `5`, but
@@ -429,3 +430,54 @@ beginning a template sequence, double the leading character: `$${` or `%%{`.
 Within quoted and heredoc string expressions, the sequences `${` and `%{` begin
 _template sequences_. Templates let you directly embed expressions into a string
 literal, to dynamically construct strings from other values.
+
+The following example demonstrates how a template sequence can be used to embed
+the value of a variable into a string that can be used as script content:
+
+```hcl
+locals {
+  packages = ["git", "curl", "vim"]
+
+  install_packages = <<-EOF
+    #!/bin/bash
+    if [ ${length(local.packages)} -eq 0 ]; then
+      echo "No packages to install."
+      exit 1
+    fi
+    apt-get update
+    %{ for package in local.packages ~}
+    apt-get install -y ${package}
+    %{ endfor ~}
+  EOF
+}
+
+source "amazon-ebs" "example" {
+  # ...
+}
+
+build {
+  sources = ["source.amazon-ebs.example"]
+
+  provisioner "shell" {
+    inline = [local.install_packages]
+  }
+}
+```
+
+This can be tested using the `packer console` command:
+
+```shell
+$ packer source.pkr.hcl
+
+> local.install_packages
+
+> #!/bin/bash
+if [ 3 -eq 0 ]; then
+  echo "No packages to install."
+  exit 1
+fi
+apt-get update
+    apt-get install -y git
+    apt-get install -y curl
+    apt-get install -y vim
+```

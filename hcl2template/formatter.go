@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package hcl2template
 
@@ -7,12 +7,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -55,52 +55,53 @@ func (f *HCL2Formatter) formatFile(path string, diags hcl.Diagnostics, bytesModi
 // If any error is encountered, zero bytes will be returned.
 //
 // Path can be a directory or a file.
-func (f *HCL2Formatter) Format(path string) (int, hcl.Diagnostics) {
+func (f *HCL2Formatter) Format(paths []string) (int, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	var bytesModified int
-
-	if path == "" {
-		diags = append(diags, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "path is empty, cannot format",
-			Detail:   "path is empty, cannot format",
-		})
-		return bytesModified, diags
-	}
 
 	if f.parser == nil {
 		f.parser = hclparse.NewParser()
 	}
 
-	if s, err := os.Stat(path); err != nil || !s.IsDir() {
-		return f.formatFile(path, diags, bytesModified)
-	}
+	for _, path := range paths {
+		s, err := os.Stat(path)
 
-	fileInfos, err := ioutil.ReadDir(path)
-	if err != nil {
-		diag := &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "Cannot read hcl directory",
-			Detail:   err.Error(),
-		}
-		diags = append(diags, diag)
-		return bytesModified, diags
-	}
-
-	for _, fileInfo := range fileInfos {
-		filename := filepath.Join(path, fileInfo.Name())
-		if fileInfo.IsDir() {
-			if f.Recursive {
-				var tempDiags hcl.Diagnostics
-				var tempBytesModified int
-				tempBytesModified, tempDiags = f.Format(filename)
-				bytesModified += tempBytesModified
-				diags = diags.Extend(tempDiags)
+		if err != nil || !s.IsDir() {
+			bytesModified, diags = f.formatFile(path, diags, bytesModified)
+		} else {
+			fileInfos, err := os.ReadDir(path)
+			if err != nil {
+				diag := &hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Cannot read hcl directory",
+					Detail:   err.Error(),
+				}
+				diags = append(diags, diag)
+				return bytesModified, diags
 			}
-			continue
-		}
-		if isHcl2FileOrVarFile(filename) {
-			bytesModified, diags = f.formatFile(filename, diags, bytesModified)
+
+			for _, fileInfo := range fileInfos {
+				name := fileInfo.Name()
+				if f.shouldIgnoreFile(name) {
+					continue
+				}
+				filename := filepath.Join(path, name)
+				if fileInfo.IsDir() {
+					if f.Recursive {
+						var tempDiags hcl.Diagnostics
+						var tempBytesModified int
+						var newPaths []string
+						newPaths = append(newPaths, filename)
+						tempBytesModified, tempDiags = f.Format(newPaths)
+						bytesModified += tempBytesModified
+						diags = diags.Extend(tempDiags)
+					}
+					continue
+				}
+				if isHcl2FileOrVarFile(filename) {
+					bytesModified, diags = f.formatFile(filename, diags, bytesModified)
+				}
+			}
 		}
 	}
 
@@ -116,6 +117,10 @@ func (f *HCL2Formatter) processFile(filename string) ([]byte, error) {
 		f.Output = os.Stdout
 	}
 
+	if !(filename == "-") && !isHcl2FileOrVarFile(filename) {
+		return nil, fmt.Errorf("file %s is not a HCL file", filename)
+	}
+
 	var in io.Reader
 	var err error
 
@@ -129,14 +134,14 @@ func (f *HCL2Formatter) processFile(filename string) ([]byte, error) {
 		}
 	}
 
-	inSrc, err := ioutil.ReadAll(in)
+	inSrc, err := io.ReadAll(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %s", filename, err)
 	}
 
 	_, diags := f.parser.ParseHCL(inSrc, filename)
 	if diags.HasErrors() {
-		return nil, fmt.Errorf("failed to parse HCL %s", filename)
+		return nil, multierror.Append(nil, diags.Errs()...)
 	}
 
 	outSrc := hclwrite.Format(inSrc)
@@ -158,7 +163,7 @@ func (f *HCL2Formatter) processFile(filename string) ([]byte, error) {
 		if filename == "-" {
 			_, _ = f.Output.Write(outSrc)
 		} else {
-			if err := ioutil.WriteFile(filename, outSrc, 0644); err != nil {
+			if err := os.WriteFile(filename, outSrc, 0644); err != nil {
 				return nil, err
 			}
 		}
@@ -175,17 +180,25 @@ func (f *HCL2Formatter) processFile(filename string) ([]byte, error) {
 	return outSrc, nil
 }
 
+// shouldIgnoreFile returns true if the given filename (which must not have a
+// directory path ahead of it) should be ignored as e.g. an editor swap file.
+func (f *HCL2Formatter) shouldIgnoreFile(name string) bool {
+	return strings.HasPrefix(name, ".") || // Unix-like hidden files
+		strings.HasSuffix(name, "~") || // vim
+		strings.HasPrefix(name, "#") && strings.HasSuffix(name, "#") // emacs
+}
+
 // bytesDiff returns the unified diff of b1 and b2
 // Shamelessly copied from Terraform's fmt command.
 func bytesDiff(b1, b2 []byte, path string) (data []byte, err error) {
-	f1, err := ioutil.TempFile("", "")
+	f1, err := os.CreateTemp("", "")
 	if err != nil {
 		return
 	}
 	defer os.Remove(f1.Name())
 	defer f1.Close()
 
-	f2, err := ioutil.TempFile("", "")
+	f2, err := os.CreateTemp("", "")
 	if err != nil {
 		return
 	}

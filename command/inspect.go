@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package command
 
@@ -28,7 +28,7 @@ func (c *InspectCommand) Run(args []string) int {
 
 func (c *InspectCommand) ParseArgs(args []string) (*InspectArgs, int) {
 	var cfg InspectArgs
-	flags := c.Meta.FlagSet("inspect", FlagSetVars)
+	flags := c.Meta.FlagSet("inspect")
 	flags.Usage = func() { c.Ui.Say(c.Help()) }
 	cfg.AddFlagSets(flags)
 	if err := flags.Parse(args); err != nil {
@@ -49,7 +49,9 @@ func (c *InspectCommand) RunContext(ctx context.Context, cla *InspectArgs) int {
 	}
 
 	// here we ignore init diags to allow unknown variables to be used
-	_ = packerStarter.Initialize(packer.InitializeOptions{})
+	_ = packerStarter.Initialize(packer.InitializeOptions{
+		UseSequential: cla.UseSequential,
+	})
 
 	return packerStarter.InspectConfig(packer.InspectConfigOptions{
 		Ui: c.Ui,
@@ -66,7 +68,8 @@ Usage: packer inspect TEMPLATE
 
 Options:
 
-  -machine-readable  Machine-readable output
+  -machine-readable             Machine-readable output
+  -use-sequential-evaluation    Fallback to using a sequential approach for local/datasource evaluation.
 `
 
 	return strings.TrimSpace(helpText)

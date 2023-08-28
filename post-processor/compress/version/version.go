@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package version
 
@@ -11,6 +11,6 @@ import (
 var CompressPluginVersion *version.PluginVersion
 
 func init() {
-	CompressPluginVersion = version.InitializePluginVersion(
-		packerVersion.Version, packerVersion.VersionPrerelease)
+	CompressPluginVersion = version.NewPluginVersion(
+		packerVersion.Version, packerVersion.VersionPrerelease, packerVersion.VersionMetadata)
 }

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 
 
 # This script builds the application from source for multiple platforms.
 # Determine the arch/os combos we're building for
 ALL_XC_ARCH="386 amd64 arm arm64 ppc64le mips mips64 mipsle mipsle64 s390x"
 ALL_XC_OS="linux darwin windows freebsd openbsd solaris"
-SKIPPED_OSARCH="!darwin/arm !freebsd/arm !freebsd/arm64"
+SKIPPED_OSARCH="!darwin/arm !freebsd/arm !freebsd/arm64 !darwin/386"
 
 # Exit immediately if a command fails
 set -e

@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package command
 
@@ -35,6 +35,9 @@ func TestValidateCommand(t *testing.T) {
 
 		// wrong version field
 		{path: filepath.Join(testFixture("version_req", "wrong_field_name")), exitCode: 1},
+
+		// wrong packer block type
+		{path: filepath.Join(testFixture("validate", "invalid_block_type.pkr.hcl")), exitCode: 1},
 
 		// wrong packer block
 		{path: filepath.Join(testFixture("validate", "invalid_packer_block.pkr.hcl")), exitCode: 1},

@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package command
 
@@ -28,7 +28,7 @@ func (c *FormatCommand) Run(args []string) int {
 
 func (c *FormatCommand) ParseArgs(args []string) (*FormatArgs, int) {
 	var cfg FormatArgs
-	flags := c.Meta.FlagSet("format", FlagSetNone)
+	flags := c.Meta.FlagSet("format")
 	flags.Usage = func() { c.Ui.Say(c.Help()) }
 	cfg.AddFlagSets(flags)
 	if err := flags.Parse(args); err != nil {
@@ -36,12 +36,12 @@ func (c *FormatCommand) ParseArgs(args []string) (*FormatArgs, int) {
 	}
 
 	args = flags.Args()
-	if len(args) != 1 {
+	if len(args) == 0 {
 		flags.Usage()
 		return &cfg, 1
 	}
 
-	cfg.Path = args[0]
+	cfg.Paths = args
 	return &cfg, 0
 }
 
@@ -57,7 +57,7 @@ func (c *FormatCommand) RunContext(ctx context.Context, cla *FormatArgs) int {
 		Recursive: cla.Recursive,
 	}
 
-	bytesModified, diags := formatter.Format(cla.Path)
+	bytesModified, diags := formatter.Format(cla.Paths)
 	ret := writeDiags(c.Ui, nil, diags)
 	if ret != 0 {
 		return ret

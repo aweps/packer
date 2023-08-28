@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package hcl2template
 
@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/hcl/v2"
-	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
 	"github.com/hashicorp/packer/builder/null"
 	. "github.com/hashicorp/packer/hcl2template/internal"
 	"github.com/hashicorp/packer/packer"
@@ -126,16 +125,19 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{"super_secret_password"},
 				},
 			},
 			false,
+			nil,
 		},
 		{"duplicate variable",
 			defaultParser,
@@ -155,8 +157,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 		{"duplicate variable in variables",
 			defaultParser,
@@ -176,8 +179,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 		{"duplicate local block",
 			defaultParser,
@@ -199,8 +203,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 		{"invalid default type",
 			defaultParser,
@@ -220,8 +225,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 
 		{"unknown key",
@@ -239,8 +245,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 
 		{"unset used variable",
@@ -257,8 +264,9 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			true,
+			nil,
 		},
 
 		{"unset unused variable",
@@ -290,16 +298,19 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			true, true,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 
 		{"locals within another locals usage in different files",
@@ -376,16 +387,19 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 		{"recursive locals",
 			defaultParser,
@@ -393,11 +407,12 @@ func TestParse_variables(t *testing.T) {
 			&PackerConfig{
 				CorePackerVersionString: lockedVersion,
 				Basedir:                 filepath.Join("testdata", "variables"),
-				LocalVariables:          Variables{},
+				LocalVariables:          nil,
 			},
 			true, true,
-			[]packersdk.Build{},
+			[]*packer.CoreBuild{},
 			false,
+			nil,
 		},
 
 		{"set variable from var-file",
@@ -439,16 +454,19 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 
 		{"unknown variable from var-file",
@@ -480,16 +498,19 @@ func TestParse_variables(t *testing.T) {
 				Basedir: filepath.Join("testdata", "variables"),
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 
 		{"provisioner variable decoding",
@@ -537,48 +558,52 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{&packer.CoreBuild{
-				Type:     "null.null-builder",
-				Prepared: true,
-				Builder:  &null.Builder{},
-				Provisioners: []packer.CoreBuildProvisioner{
-					{
-						PType: "shell",
-						Provisioner: &packer.RetriedProvisioner{
-							MaxRetries: 1,
-							Provisioner: &HCL2Provisioner{
-								Provisioner: &MockProvisioner{
-									Config: MockConfig{
-										NestedMockConfig: NestedMockConfig{
-											Tags: []MockTag{},
+			[]*packer.CoreBuild{
+				&packer.CoreBuild{
+					Type:        "null.null-builder",
+					BuilderType: "null",
+					Prepared:    true,
+					Builder:     &null.Builder{},
+					Provisioners: []packer.CoreBuildProvisioner{
+						{
+							PType: "shell",
+							Provisioner: &packer.RetriedProvisioner{
+								MaxRetries: 1,
+								Provisioner: &HCL2Provisioner{
+									Provisioner: &MockProvisioner{
+										Config: MockConfig{
+											NestedMockConfig: NestedMockConfig{
+												Tags: []MockTag{},
+											},
+											NestedSlice: []NestedMockConfig{},
 										},
-										NestedSlice: []NestedMockConfig{},
+									},
+								},
+							},
+						},
+						{
+							PType: "shell",
+							Provisioner: &packer.RetriedProvisioner{
+								MaxRetries: 1,
+								Provisioner: &HCL2Provisioner{
+									Provisioner: &MockProvisioner{
+										Config: MockConfig{
+											NestedMockConfig: NestedMockConfig{
+												Tags: []MockTag{},
+											},
+											NestedSlice: []NestedMockConfig{},
+										},
 									},
 								},
 							},
 						},
 					},
-					{
-						PType: "shell",
-						Provisioner: &packer.RetriedProvisioner{
-							MaxRetries: 1,
-							Provisioner: &HCL2Provisioner{
-								Provisioner: &MockProvisioner{
-									Config: MockConfig{
-										NestedMockConfig: NestedMockConfig{
-											Tags: []MockTag{},
-										},
-										NestedSlice: []NestedMockConfig{},
-									},
-								},
-							},
-						},
-					},
+					PostProcessors: [][]packer.CoreBuildPostProcessor{},
+					SensitiveVars:  []string{},
 				},
-				PostProcessors: [][]packer.CoreBuildPostProcessor{},
-			},
 			},
 			false,
+			nil,
 		},
 
 		{"valid validation block",
@@ -624,16 +649,19 @@ func TestParse_variables(t *testing.T) {
 				},
 			},
 			false, false,
-			[]packersdk.Build{
+			[]*packer.CoreBuild{
 				&packer.CoreBuild{
 					Type:           "null.test",
+					BuilderType:    "null",
 					Builder:        &null.Builder{},
 					Provisioners:   []packer.CoreBuildProvisioner{},
 					PostProcessors: [][]packer.CoreBuildPostProcessor{},
 					Prepared:       true,
+					SensitiveVars:  []string{},
 				},
 			},
 			false,
+			nil,
 		},
 
 		{"valid validation block - invalid default",
@@ -658,6 +686,7 @@ func TestParse_variables(t *testing.T) {
 			true, true,
 			nil,
 			false,
+			nil,
 		},
 	}
 	testParse(t, tests)

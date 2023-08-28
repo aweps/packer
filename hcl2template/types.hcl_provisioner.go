@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package hcl2template
 
@@ -21,7 +21,7 @@ type HCL2Provisioner struct {
 	Provisioner      packersdk.Provisioner
 	provisionerBlock *ProvisionerBlock
 	evalContext      *hcl.EvalContext
-	builderVariables map[string]string
+	builderVariables map[string]interface{}
 	override         map[string]interface{}
 }
 

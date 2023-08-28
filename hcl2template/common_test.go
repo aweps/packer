@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package hcl2template
 
@@ -72,9 +72,17 @@ type parseTest struct {
 	parseWantDiags         bool
 	parseWantDiagHasErrors bool
 
-	getBuildsWantBuilds []packersdk.Build
+	getBuildsWantBuilds []*packer.CoreBuild
 	getBuildsWantDiags  bool
 	// getBuildsWantDiagHasErrors bool
+
+	getHCPPackerRegistry *getHCPPackerRegistry
+}
+
+type getHCPPackerRegistry struct {
+	wantBlock        *HCPPackerRegistryBlock
+	wantDiag         bool
+	wantDiagHasError bool
 }
 
 func testParse(t *testing.T, tests []parseTest) {
@@ -115,6 +123,31 @@ func testParse(t *testing.T, tests []parseTest) {
 			}
 			if diff := cmp.Diff(tt.getBuildsWantBuilds, gotBuilds, cmpOpts...); diff != "" {
 				t.Fatalf("Parser.getBuilds() wrong packer builds. %s", diff)
+			}
+
+			gotGetHCPPackerRegistry, gotDiags := gotCfg.GetHCPPackerRegistryBlock()
+			if tt.getHCPPackerRegistry != nil {
+				if tt.getHCPPackerRegistry.wantDiag && len(gotDiags) == 0 {
+					t.Fatal("Parser.getHCPPackerRegistry() expected diagostics, got 0")
+				}
+				if !tt.getHCPPackerRegistry.wantDiag && len(gotDiags) != 0 {
+					t.Fatalf("Parser.getHCPPackerRegistry() does not  expect diagostics, got %v", gotDiags)
+				}
+				if tt.getHCPPackerRegistry.wantDiagHasError && !gotDiags.HasErrors() {
+					t.Fatalf("Parser.getHCPPackerRegistry() expected error diagostics, got %v", gotDiags)
+				}
+				if !tt.getHCPPackerRegistry.wantDiagHasError && gotDiags.HasErrors() {
+					t.Fatalf("Parser.getHCPPackerRegistry() did not expect error diagostics, got %v", gotDiags)
+				}
+				if diff := cmp.Diff(tt.getHCPPackerRegistry.wantBlock, gotGetHCPPackerRegistry, cmpOpts...); diff != "" {
+					t.Fatalf("Parser.parse() wrong HCPPackerRegistry block. %s", diff)
+				}
+
+			}
+			if tt.getHCPPackerRegistry == nil {
+				if gotGetHCPPackerRegistry != nil {
+					t.Fatalf("Parser.getHCPPackerRegistry() expected nil, got %v", gotGetHCPPackerRegistry)
+				}
 			}
 		})
 	}
@@ -205,17 +238,6 @@ var (
 		Datasource: "string",
 	}
 
-	basicMockBuilder = &MockBuilder{
-		Config: MockConfig{
-			NestedMockConfig: builderBasicNestedMockConfig,
-			Nested:           builderBasicNestedMockConfig,
-			NestedSlice: []NestedMockConfig{
-				builderBasicNestedMockConfig,
-				builderBasicNestedMockConfig,
-			},
-		},
-	}
-
 	basicMockProvisioner = &MockProvisioner{
 		Config: MockConfig{
 			NotSquashed:      "value <UNKNOWN>",
@@ -273,17 +295,6 @@ var (
 			NestedSlice: []NestedMockConfig{},
 		},
 	}
-	basicMockCommunicator = &MockCommunicator{
-		Config: MockConfig{
-			NestedMockConfig: basicNestedMockConfig,
-			Nested:           basicNestedMockConfig,
-			NestedSlice: []NestedMockConfig{
-				{
-					Tags: []MockTag{},
-				},
-			},
-		},
-	}
 
 	emptyMockBuilder = &MockBuilder{
 		Config: MockConfig{
@@ -292,13 +303,6 @@ var (
 			},
 			Nested:      NestedMockConfig{},
 			NestedSlice: []NestedMockConfig{},
-		},
-	}
-
-	emptyMockProvisioner = &MockProvisioner{
-		Config: MockConfig{
-			NestedMockConfig: NestedMockConfig{Tags: []MockTag{}},
-			NestedSlice:      []NestedMockConfig{},
 		},
 	}
 

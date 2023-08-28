@@ -1,11 +1,10 @@
 ---
 description: |
-  It is possible to write custom builders using the Packer plugin interface, and
-  this page documents how to do that.
-page_title: Custom Builders - Extending
+  You can create custom builders for Packer that extend building functionality. Learn how write custom builders using the Packer plugin interface.
+page_title: Create custom builders
 ---
 
-# Custom Builders
+# Create Custom Builders
 
 Packer builders are responsible for creating a virtual machine, setting the virtual machine up for provisioning, and then turning that provisioned virtual machine into a machine image. We officially maintain and distribute several builders, including builders to create images on Amazon EC2, VMware, Google
 Compute Engine, and many more. Refer to the [Builders](/packer/docs/builders) documentation for details.
@@ -59,7 +58,7 @@ configuration. The exact semantics of the merge are left to the builder author.
 
 We recommend that you use the
 [mapstructure](https://godoc.org/github.com/mitchellh/mapstructure) library to
-decode the interface{} into a meaningful structure. Mapstructure will take an
+decode the `interface{}` into a meaningful structure. Mapstructure will take an
 `interface{}` and decode it into an arbitrarily complex struct. If there are any
 errors, it generates very human friendly errors that can be returned directly
 from the prepare method. You can find many usage examples of this library within
@@ -306,5 +305,5 @@ order to make it available to the Packer core as a plugin. We have created a
 [scaffolding](https://github.com/hashicorp/packer-plugin-scaffolding/blob/main/builder/scaffolding/builder.go)
 repo to give you an idea of the relationship between the builder
 implementation and the server implementation within a repository, and then read
-[basics of how Plugins work](/packer/docs/plugins/install-plugins), which breaks down all the
+[basics of how Plugins work](/packer/docs/plugins/install), which breaks down all the
 server details.

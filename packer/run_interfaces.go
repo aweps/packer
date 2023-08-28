@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package packer
 
@@ -24,7 +24,7 @@ type BuildGetter interface {
 	// GetBuilds return all possible builds for a config. It also starts all
 	// builders.
 	// TODO(azr): rename to builder starter ?
-	GetBuilds(GetBuildsOptions) ([]packersdk.Build, hcl.Diagnostics)
+	GetBuilds(GetBuildsOptions) ([]*CoreBuild, hcl.Diagnostics)
 }
 
 type Evaluator interface {
@@ -38,6 +38,26 @@ type InitializeOptions struct {
 	// When set, the execution of datasources will be skipped and the datasource will provide
 	// an output spec that will be used for validation only.
 	SkipDatasourcesExecution bool
+	// UseSequential changes the way data sources and locals are evaluated.
+	//
+	// In this mode, instead of using two separate phases to evaluate datasources first, then
+	// local variables, here we instead use a DAG so both are evaluated at once, based on the
+	// dependencies between them.
+	//
+	// This is optional and defaults to false for now, but this may become a default later.
+	UseSequential bool
+}
+
+type PluginBinaryDetector interface {
+	// DetectPluginBinaries is used only for HCL2 templates, and loads required
+	// plugins if specified.
+	DetectPluginBinaries() hcl.Diagnostics
+}
+
+type PluginBinaryDetector interface {
+	// DetectPluginBinaries is used only for HCL2 templates, and loads required
+	// plugins if specified.
+	DetectPluginBinaries() hcl.Diagnostics
 }
 
 // The Handler handles all Packer things. This interface reflects the Packer
@@ -53,6 +73,7 @@ type Handler interface {
 	BuildGetter
 	ConfigFixer
 	ConfigInspector
+	PluginBinaryDetector
 }
 
 //go:generate enumer -type FixConfigMode

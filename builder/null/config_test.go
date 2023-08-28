@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package null
 
@@ -16,19 +16,6 @@ func testConfig() map[string]interface{} {
 		"ssh_username": "bar",
 		"ssh_password": "baz",
 	}
-}
-
-func testConfigStruct(t *testing.T) *Config {
-	var c Config
-	warns, errs := c.Prepare(testConfig())
-	if len(warns) > 0 {
-		t.Fatalf("bad: %#v", len(warns))
-	}
-	if errs != nil {
-		t.Fatalf("bad: %#v", errs)
-	}
-
-	return &c
 }
 
 func testConfigErr(t *testing.T, warns []string, err error) {
