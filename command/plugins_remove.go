@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package command
 
@@ -74,7 +74,6 @@ func (c *PluginsRemoveCommand) RunContext(buildCtx context.Context, args []strin
 	// a plugin requirement that matches them all
 	pluginRequirement := plugingetter.Requirement{
 		Identifier: plugin,
-		Implicit:   false,
 	}
 
 	if len(args) > 1 {

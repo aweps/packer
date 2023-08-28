@@ -1,5 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 
 package hcl2template
 
@@ -123,8 +123,6 @@ func (cfg *PackerConfig) EvalContext(ctx BlockContext, variables map[string]cty.
 
 	iterID, ok := cfg.HCPVars["iterationID"]
 	if ok {
-		log.Printf("iterationID set: %q", iterID)
-
 		ectx.Variables[packerAccessor] = cty.ObjectVal(map[string]cty.Value{
 			"version":     cty.StringVal(cfg.CorePackerVersionString),
 			"iterationID": iterID,
