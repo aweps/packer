@@ -8,12 +8,11 @@ package plugin
 import (
 	_ "embed"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"os/exec"
 	"testing"
 
-	amazonacc "github.com/hashicorp/packer-plugin-amazon/builder/ebs/acceptance"
 	"github.com/hashicorp/packer-plugin-sdk/acctest"
 	"github.com/hashicorp/packer/hcl2template/addrs"
 )
@@ -32,13 +31,6 @@ func TestAccInitAndBuildBasicAmazonAmiDatasource(t *testing.T) {
 		Setup: func() error {
 			return cleanupPluginInstallation(plugin)
 		},
-		Teardown: func() error {
-			helper := amazonacc.AMIHelper{
-				Region: "us-west-2",
-				Name:   "packer-amazon-ami-test",
-			}
-			return helper.CleanUpAmi()
-		},
 		Template: basicAmazonAmiDatasourceHCL2Template,
 		Type:     "amazon-ami",
 		Init:     true,
@@ -54,7 +46,7 @@ func TestAccInitAndBuildBasicAmazonAmiDatasource(t *testing.T) {
 			}
 			defer logs.Close()
 
-			logsBytes, err := ioutil.ReadAll(logs)
+			logsBytes, err := io.ReadAll(logs)
 			if err != nil {
 				return fmt.Errorf("Unable to read %s", logfile)
 			}
