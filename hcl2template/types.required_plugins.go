@@ -15,8 +15,7 @@ import (
 func (cfg *PackerConfig) decodeRequiredPluginsBlock(f *hcl.File) hcl.Diagnostics {
 	var diags hcl.Diagnostics
 
-	content, moreDiags := f.Body.Content(configSchema)
-	diags = append(diags, moreDiags...)
+	content, _ := f.Body.Content(configSchema)
 
 	for _, block := range content.Blocks {
 		switch block.Type {
@@ -141,6 +140,22 @@ func decodeRequiredPluginsBlock(block *hcl.Block) (*RequiredPlugins, hcl.Diagnos
 				})
 				continue
 			}
+
+			hadPrerelease := false
+			for _, constraint := range constraints {
+				if constraint.Prerelease() {
+					hadPrerelease = true
+				}
+			}
+			if hadPrerelease {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid version constraint",
+					Detail:   fmt.Sprintf("Unsupported prerelease for constraint %q", constraintStr),
+					Subject:  attr.Expr.Range().Ptr(),
+				})
+			}
+
 			vc.Required = constraints
 			rp.Requirement = vc
 
@@ -166,15 +181,15 @@ func decodeRequiredPluginsBlock(block *hcl.Block) (*RequiredPlugins, hcl.Diagnos
 			}
 
 			rp.Source = source.AsString()
-			p, sourceDiags := addrs.ParsePluginSourceString(rp.Source)
+			p, err := addrs.ParsePluginSourceString(rp.Source)
 
-			if sourceDiags.HasErrors() {
-				for _, diag := range sourceDiags {
-					if diag.Subject == nil {
-						diag.Subject = attr.Expr.Range().Ptr()
-					}
-				}
-				diags = append(diags, sourceDiags...)
+			if err != nil {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Subject:  &rp.Requirement.DeclRange,
+					Summary:  "Failed to parse source",
+					Detail:   err.Error(),
+				})
 				continue
 			} else {
 				rp.Type = p

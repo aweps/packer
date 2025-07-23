@@ -5,6 +5,7 @@ package command
 
 import (
 	"context"
+	"log"
 	"strings"
 
 	"github.com/hashicorp/packer/packer"
@@ -48,6 +49,11 @@ func (c *ValidateCommand) ParseArgs(args []string) (*ValidateArgs, int) {
 }
 
 func (c *ValidateCommand) RunContext(ctx context.Context, cla *ValidateArgs) int {
+	// Set the release only flag if specified as argument
+	//
+	// This deactivates the capacity for Packer to load development binaries.
+	c.CoreConfig.Components.PluginConfig.ReleasesOnly = cla.ReleaseOnly
+
 	// By default we want to inform users of undeclared variables when validating but not during build time.
 	cla.MetaArgs.WarnOnUndeclaredVar = true
 	if cla.NoWarnUndeclaredVar {
@@ -71,8 +77,13 @@ func (c *ValidateCommand) RunContext(ctx context.Context, cla *ValidateArgs) int
 		return ret
 	}
 
+	if packer.PackerUseProto {
+		log.Printf("[TRACE] Using protobuf for communication with plugins")
+	}
+
 	diags = packerStarter.Initialize(packer.InitializeOptions{
 		SkipDatasourcesExecution: !cla.EvaluateDatasources,
+		UseSequential:            cla.UseSequential,
 	})
 	ret = writeDiags(c.Ui, nil, diags)
 	if ret != 0 {
@@ -118,6 +129,8 @@ Options:
   -var-file=path                JSON or HCL2 file containing user variables, can be used multiple times.
   -no-warn-undeclared-var       Disable warnings for user variable files containing undeclared variables.
   -evaluate-datasources         Evaluate data sources during validation (HCL2 only, may incur costs); Defaults to false. 
+  -ignore-prerelease-plugins    Disable the loading of prerelease plugin binaries (x.y.z-dev).
+  -use-sequential-evaluation    Fallback to using a sequential approach for local/datasource evaluation.
 `
 
 	return strings.TrimSpace(helpText)

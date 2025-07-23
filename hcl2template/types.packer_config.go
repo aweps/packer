@@ -9,10 +9,9 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
-	hcl "github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
 	pkrfunction "github.com/hashicorp/packer/hcl2template/function"
 	"github.com/hashicorp/packer/packer"
 	"github.com/zclconf/go-cty/cty"
@@ -54,6 +53,9 @@ type PackerConfig struct {
 
 	// Builds is the list of Build blocks defined in the config files.
 	Builds Builds
+
+	// HCPPackerRegistry contains the configuration for publishing the artifacts to the HCP Packer Registry.
+	HCPPackerRegistry *HCPPackerRegistryBlock
 
 	// HCPVars is the list of HCP-set variables for use later in a template
 	HCPVars map[string]cty.Value
@@ -109,10 +111,6 @@ func (cfg *PackerConfig) EvalContext(ctx BlockContext, variables map[string]cty.
 				"name": cty.UnknownVal(cty.String),
 			}),
 			buildAccessor: cty.UnknownVal(cty.EmptyObject),
-			packerAccessor: cty.ObjectVal(map[string]cty.Value{
-				"version":     cty.StringVal(cfg.CorePackerVersionString),
-				"iterationID": cty.UnknownVal(cty.String),
-			}),
 			pathVariablesAccessor: cty.ObjectVal(map[string]cty.Value{
 				"cwd":  cty.StringVal(strings.ReplaceAll(cfg.Cwd, `\`, `/`)),
 				"root": cty.StringVal(strings.ReplaceAll(cfg.Basedir, `\`, `/`)),
@@ -120,13 +118,22 @@ func (cfg *PackerConfig) EvalContext(ctx BlockContext, variables map[string]cty.
 		},
 	}
 
+	packerVars := map[string]cty.Value{
+		"version":            cty.StringVal(cfg.CorePackerVersionString),
+		"iterationID":        cty.UnknownVal(cty.String),
+		"versionFingerprint": cty.UnknownVal(cty.String),
+	}
+
 	iterID, ok := cfg.HCPVars["iterationID"]
 	if ok {
-		ectx.Variables[packerAccessor] = cty.ObjectVal(map[string]cty.Value{
-			"version":     cty.StringVal(cfg.CorePackerVersionString),
-			"iterationID": iterID,
-		})
+		packerVars["iterationID"] = iterID
 	}
+	versionFP, ok := cfg.HCPVars["versionFingerprint"]
+	if ok {
+		packerVars["versionFingerprint"] = versionFP
+	}
+
+	ectx.Variables[packerAccessor] = cty.ObjectVal(packerVars)
 
 	// In the future we'd like to load and execute HCL blocks using a graph
 	// dependency tree, so that any block can use any block whatever the
@@ -151,8 +158,7 @@ func (cfg *PackerConfig) EvalContext(ctx BlockContext, variables map[string]cty.
 func (c *PackerConfig) decodeInputVariables(f *hcl.File) hcl.Diagnostics {
 	var diags hcl.Diagnostics
 
-	content, moreDiags := f.Body.Content(configSchema)
-	diags = append(diags, moreDiags...)
+	content, _ := f.Body.Content(configSchema)
 
 	// for input variables we allow to use env in the default value section.
 	ectx := &hcl.EvalContext{
@@ -183,8 +189,7 @@ func (c *PackerConfig) decodeInputVariables(f *hcl.File) hcl.Diagnostics {
 func parseLocalVariableBlocks(f *hcl.File) ([]*LocalBlock, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 
-	content, moreDiags := f.Body.Content(configSchema)
-	diags = append(diags, moreDiags...)
+	content, _ := f.Body.Content(configSchema)
 
 	var locals []*LocalBlock
 
@@ -202,8 +207,8 @@ func parseLocalVariableBlocks(f *hcl.File) ([]*LocalBlock, hcl.Diagnostics) {
 			diags = append(diags, moreDiags...)
 			for name, attr := range attrs {
 				locals = append(locals, &LocalBlock{
-					Name: name,
-					Expr: attr.Expr,
+					LocalName: name,
+					Expr:      attr.Expr,
 				})
 			}
 		}
@@ -212,14 +217,16 @@ func parseLocalVariableBlocks(f *hcl.File) ([]*LocalBlock, hcl.Diagnostics) {
 	return locals, diags
 }
 
-func (c *PackerConfig) evaluateAllLocalVariables(locals []*LocalBlock) hcl.Diagnostics {
-	var diags hcl.Diagnostics
+func (c *PackerConfig) localByName(local string) (*LocalBlock, error) {
+	for _, loc := range c.LocalBlocks {
+		if loc.LocalName != local {
+			continue
+		}
 
-	for _, local := range locals {
-		diags = append(diags, c.evaluateLocalVariable(local)...)
+		return loc, nil
 	}
 
-	return diags
+	return nil, fmt.Errorf("local %s not found", local)
 }
 
 func (c *PackerConfig) evaluateLocalVariables(locals []*LocalBlock) hcl.Diagnostics {
@@ -233,59 +240,128 @@ func (c *PackerConfig) evaluateLocalVariables(locals []*LocalBlock) hcl.Diagnost
 		c.LocalVariables = Variables{}
 	}
 
-	for foundSomething := true; foundSomething; {
-		foundSomething = false
-		for i := 0; i < len(locals); {
-			local := locals[i]
-			moreDiags := c.evaluateLocalVariable(local)
-			if moreDiags.HasErrors() {
-				i++
+	for _, local := range c.LocalBlocks {
+		// Note: when looking at the expressions, we only need to care about
+		// attributes, as HCL2 expressions are not allowed in a block's labels.
+		vars := FilterTraversalsByType(local.Expr.Variables(), "local")
+
+		var localDeps []refString
+		for _, v := range vars {
+			// Some local variables may be locally aliased as
+			// `local`, which
+			if len(v) < 2 {
 				continue
 			}
-			foundSomething = true
-			locals = append(locals[:i], locals[i+1:]...)
+
+			depRef, err := NewRefStringFromDep(v)
+			if err != nil {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "failed to extract dependency name from traversal ref",
+					Detail: fmt.Sprintf("while preparing for evaluation of local variable %q, "+
+						"a dependency was unable to be converted to a refString. "+
+						"This is likely a Packer bug, please consider reporting it.", local.Name()),
+				})
+				continue
+			}
+
+			localDeps = append(localDeps, depRef)
 		}
+		local.dependencies = localDeps
 	}
 
-	if len(locals) != 0 {
-		// get errors from remaining variables
-		return c.evaluateAllLocalVariables(locals)
+	// Immediately return in case the dependencies couldn't be figured out.
+	if diags.HasErrors() {
+		return diags
+	}
+
+	for _, local := range c.LocalBlocks {
+		diags = diags.Extend(c.recursivelyEvaluateLocalVariable(local, 0))
 	}
 
 	return diags
 }
 
-func checkForDuplicateLocalDefinition(locals []*LocalBlock) hcl.Diagnostics {
+// checkForDuplicateLocalDefinition walks through the list of defined variables
+// in order to detect duplicate locals definitions.
+func (c *PackerConfig) checkForDuplicateLocalDefinition() hcl.Diagnostics {
 	var diags hcl.Diagnostics
 
-	// we could sort by name and then check contiguous names to use less memory,
-	// but using a map sounds good enough.
-	names := map[string]struct{}{}
-	for _, local := range locals {
-		if _, found := names[local.Name]; found {
-			diags = append(diags, &hcl.Diagnostic{
+	localNames := map[string]*LocalBlock{}
+
+	for _, block := range c.LocalBlocks {
+		loc, ok := localNames[block.LocalName]
+		if ok {
+			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Duplicate local definition",
-				Detail:   "Duplicate " + local.Name + " definition found.",
-				Subject:  local.Expr.Range().Ptr(),
+				Detail: fmt.Sprintf("Local variable %q is defined twice in your templates. Other definition found at %q",
+					block.LocalName, loc.Expr.Range()),
+				Subject: block.Expr.Range().Ptr(),
 			})
 			continue
 		}
-		names[local.Name] = struct{}{}
+
+		localNames[block.LocalName] = block
 	}
+
 	return diags
 }
 
-func (c *PackerConfig) evaluateLocalVariable(local *LocalBlock) hcl.Diagnostics {
+func (c *PackerConfig) recursivelyEvaluateLocalVariable(local *LocalBlock, depth int) hcl.Diagnostics {
+	// If the variable already was evaluated, we can return immediately
+	if local.evaluated {
+		return nil
+	}
+
+	if depth >= 10 {
+		return hcl.Diagnostics{&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Max local recursion depth exceeded.",
+			Detail: "An error occured while recursively evaluating locals." +
+				"Your local variables likely have a cyclic dependency. " +
+				"Please simplify your config to continue. ",
+		}}
+	}
+
 	var diags hcl.Diagnostics
 
-	value, moreDiags := local.Expr.Value(c.EvalContext(LocalContext, nil))
+	for _, dep := range local.dependencies {
+		locBlock, err := c.getComponentByRef(dep)
+		if err != nil {
+			return diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "failed to get local variable",
+				Detail: fmt.Sprintf("While evaluating %q, its dependency %q was not found, is it defined?",
+					local.Name(), dep.String()),
+			})
+		}
+
+		localDiags := c.recursivelyEvaluateLocalVariable(locBlock.(*LocalBlock), depth+1)
+		diags = diags.Extend(localDiags)
+	}
+
+	val, locDiags := c.evaluateLocalVariable(local)
+	if !locDiags.HasErrors() {
+		c.LocalVariables[local.LocalName] = val
+	}
+
+	return diags.Extend(locDiags)
+}
+
+func (cfg *PackerConfig) evaluateLocalVariable(local *LocalBlock) (*Variable, hcl.Diagnostics) {
+	var diags hcl.Diagnostics
+
+	value, moreDiags := local.Expr.Value(cfg.EvalContext(LocalContext, nil))
+
+	local.evaluated = true
+
 	diags = append(diags, moreDiags...)
 	if moreDiags.HasErrors() {
-		return diags
+		return nil, diags
 	}
-	c.LocalVariables[local.Name] = &Variable{
-		Name:      local.Name,
+	return &Variable{
+		Name:      local.LocalName,
 		Sensitive: local.Sensitive,
 		Values: []VariableAssignment{{
 			Value: value,
@@ -293,9 +369,7 @@ func (c *PackerConfig) evaluateLocalVariable(local *LocalBlock) hcl.Diagnostics 
 			From:  "default",
 		}},
 		Type: value.Type(),
-	}
-
-	return diags
+	}, diags
 }
 
 func (cfg *PackerConfig) evaluateDatasources(skipExecution bool) hcl.Diagnostics {
@@ -414,6 +488,44 @@ func (cfg *PackerConfig) recursivelyEvaluateDatasources(ref DatasourceRef, depen
 	return dependencies, diags
 }
 
+func (cfg *PackerConfig) evaluateDatasource(ds DatasourceBlock, skipExecution bool) hcl.Diagnostics {
+	var diags hcl.Diagnostics
+
+	// If we've gotten here, then it means ref doesn't seem to have any further
+	// dependencies we need to evaluate first. Evaluate it, with the cfg's full
+	// data source context.
+	datasource, startDiags := cfg.startDatasource(ds)
+	if startDiags.HasErrors() {
+		diags = append(diags, startDiags...)
+		return diags
+	}
+
+	if skipExecution {
+		placeholderValue := cty.UnknownVal(hcldec.ImpliedType(datasource.OutputSpec()))
+		ds.value = placeholderValue
+		cfg.Datasources[ds.Ref()] = ds
+		return diags
+	}
+
+	opts, _ := decodeHCL2Spec(ds.block.Body, cfg.EvalContext(DatasourceContext, nil), datasource)
+	sp := packer.CheckpointReporter.AddSpan(ds.Ref().Type, "datasource", opts)
+	realValue, err := datasource.Execute()
+	sp.End(err)
+	if err != nil {
+		diags = append(diags, &hcl.Diagnostic{
+			Summary:  err.Error(),
+			Subject:  &cfg.Datasources[ds.Ref()].block.DefRange,
+			Severity: hcl.DiagError,
+		})
+		return diags
+	}
+
+	ds.value = realValue
+	cfg.Datasources[ds.Ref()] = ds
+
+	return diags
+}
+
 // getCoreBuildProvisioners takes a list of provisioner block, starts according
 // provisioners and sends parsed HCL2 over to it.
 func (cfg *PackerConfig) getCoreBuildProvisioners(source SourceUseBlock, blocks []*ProvisionerBlock, ectx *hcl.EvalContext) ([]packer.CoreBuildProvisioner, hcl.Diagnostics) {
@@ -459,6 +571,12 @@ func (cfg *PackerConfig) getCoreBuildProvisioner(source SourceUseBlock, pb *Prov
 	if pb.MaxRetries != 0 {
 		provisioner = &packer.RetriedProvisioner{
 			MaxRetries:  pb.MaxRetries,
+			Provisioner: provisioner,
+		}
+	}
+
+	if pb.PType == "hcp-sbom" {
+		provisioner = &packer.SBOMInternalProvisioner{
 			Provisioner: provisioner,
 		}
 	}
@@ -524,11 +642,59 @@ func (cfg *PackerConfig) getCoreBuildPostProcessors(source SourceUseBlock, block
 	return res, diags
 }
 
+// GetHCPPackerRegistryBlock return the HCP registry configuration block
+// that can should be used for the current build. Right now, it should
+// use the block at the top level but support the block inside the first
+// build block with a deprecation diagnostic
+func (cfg *PackerConfig) GetHCPPackerRegistryBlock() (*HCPPackerRegistryBlock, hcl.Diagnostics) {
+	var block *HCPPackerRegistryBlock
+	var diags hcl.Diagnostics
+
+	multipleRegistryDiag := func(block *HCPPackerRegistryBlock) *hcl.Diagnostic {
+		return &hcl.Diagnostic{
+			Summary:  "Multiple HCP Packer registry block declaration",
+			Subject:  block.HCL2Ref.DefRange.Ptr(),
+			Severity: hcl.DiagError,
+			Detail: "Multiple " + buildHCPPackerRegistryLabel + " blocks have been found, only one can be defined " +
+				"in HCL2 templates. Starting with Packer 1.12.1, it is recommended to move it to the " +
+				"top-level configuration instead of within a build block.",
+		}
+	}
+	// We start by looking in the build blocks
+	for _, build := range cfg.Builds {
+		if build.HCPPackerRegistry != nil {
+			if block != nil {
+				// error multiple build block
+				diags = diags.Append(multipleRegistryDiag(build.HCPPackerRegistry))
+				continue
+			}
+			block = build.HCPPackerRegistry
+			diags = diags.Append(&hcl.Diagnostic{
+				Summary:  "Build block level " + buildHCPPackerRegistryLabel + " are deprecated",
+				Subject:  &block.DefRange,
+				Severity: hcl.DiagWarning,
+				Detail: "Starting with Packer 1.12.1, it is recommended to move it to the " +
+					"top-level configuration instead of within a build block.",
+			})
+		}
+	}
+
+	if block != nil && cfg.HCPPackerRegistry != nil {
+		diags = diags.Append(multipleRegistryDiag(block))
+	}
+
+	if cfg.HCPPackerRegistry != nil {
+		block = cfg.HCPPackerRegistry
+	}
+
+	return block, diags
+}
+
 // GetBuilds returns a list of packer Build based on the HCL2 parsed build
 // blocks. All Builders, Provisioners and Post Processors will be started and
 // configured.
-func (cfg *PackerConfig) GetBuilds(opts packer.GetBuildsOptions) ([]packersdk.Build, hcl.Diagnostics) {
-	res := []packersdk.Build{}
+func (cfg *PackerConfig) GetBuilds(opts packer.GetBuildsOptions) ([]*packer.CoreBuild, hcl.Diagnostics) {
+	res := []*packer.CoreBuild{}
 	var diags hcl.Diagnostics
 	possibleBuildNames := []string{}
 
@@ -617,6 +783,7 @@ func (cfg *PackerConfig) GetBuilds(opts packer.GetBuildsOptions) ([]packersdk.Bu
 
 			decoded, _ := decodeHCL2Spec(srcUsage.Body, cfg.EvalContext(BuildContext, nil), builder)
 			pcb.HCLConfig = decoded
+			pcb.BuilderType = srcUsage.Type
 
 			// If the builder has provided a list of to-be-generated variables that
 			// should be made accessible to provisioners, pass that list into
@@ -659,6 +826,14 @@ func (cfg *PackerConfig) GetBuilds(opts packer.GetBuildsOptions) ([]packersdk.Bu
 			pcb.Provisioners = provisioners
 			pcb.PostProcessors = pps
 			pcb.Prepared = true
+
+			pcb.SensitiveVars = make([]string, 0, len(cfg.InputVariables))
+
+			for key, variable := range cfg.InputVariables {
+				if variable.Sensitive {
+					pcb.SensitiveVars = append(pcb.SensitiveVars, key)
+				}
+			}
 
 			// Prepare just sets the "prepareCalled" flag on CoreBuild, since
 			// we did all the prep here.
